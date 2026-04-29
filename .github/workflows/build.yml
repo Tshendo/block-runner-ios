@@ -1,0 +1,63 @@
+name: build-game
+on: [push]
+
+jobs:
+  build-binary:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: |
+          SDK=$(xcrun -sdk iphoneos --show-sdk-path)
+          xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=17.0 -O2 -fobjc-arc \
+            -o App game_main.m \
+            -isysroot "$SDK" \
+            -framework UIKit -framework WebKit -framework Foundation
+          file App
+          ls -la App
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-binary
+          path: App
+
+  package-ipa:
+    runs-on: macos-latest
+    needs: build-binary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: game-binary
+      - name: package
+        run: |
+          mkdir -p App.app
+          cp App App.app/App
+          chmod +x App.app/App
+
+          cat > App.app/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>App</string>
+            <key>CFBundleIdentifier</key><string>com.nexus.layout_manipulation3</string>
+            <key>CFBundleVersion</key><string>18.0</string>
+            <key>CFBundleShortVersionString</key><string>18.0</string>
+            <key>CFBundleName</key><string>BlockRunner</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
+            <key>MinimumOSVersion</key><string>17.0</string>
+            <key>LSRequiresIPhoneOS</key><true/>
+            <key>LSApplicationCategoryType</key><string></string>
+          </dict></plist>
+          EOF
+
+          codesign -f -s - App.app/App
+          mkdir -p Payload
+          cp -r App.app Payload/
+          zip -r AllocatorProbe_v18probe_adhoc.ipa Payload/
+          ls -la AllocatorProbe_v18probe_adhoc.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-ipa
+          path: AllocatorProbe_v18probe_adhoc.ipa
