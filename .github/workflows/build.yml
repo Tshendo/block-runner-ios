@@ -12,7 +12,7 @@ jobs:
           xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=17.0 -O2 -fobjc-arc \
             -o App game_main.m \
             -isysroot "$SDK" \
-            -framework UIKit -framework WebKit -framework Foundation
+            -framework UIKit -framework WebKit -framework Foundation -framework CoreGraphics
           file App
           ls -la App
       - uses: actions/upload-artifact@v4
